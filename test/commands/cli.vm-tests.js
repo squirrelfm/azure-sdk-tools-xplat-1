@@ -23,8 +23,21 @@ var fs = require('fs');
 var path = require('path');
 var CLITest = require('../framework/cli-test');
 
-var communityImageId = process.env['AZURE_COMMUNITY_IMAGE_ID'];
-var storageAccountKey = process.env['AZURE_STORAGE_ACCOUNT'] ? process.env['AZURE_STORAGE_ACCESS_KEY'] : 'YW55IGNhcm5hbCBwbGVhc3VyZQ==';
+var requiredEnvironment = [
+  {
+    name: 'AZURE_COMMUNITY_IMAGE_ID',
+    defaultValue: 'vmdepot-1-1-1'
+  },
+
+  'AZURE_STORAGE_ACCOUNT',
+  {
+    name: 'AZURE_STORAGE_ACCESS_KEY',
+    secure: true
+  }
+];
+
+var communityImageId;
+var storageAccountKey;
 var isForceMocked = false;
 var createdDisks = [];
 
@@ -58,7 +71,7 @@ describe('cli', function () {
       location;
 
     before(function (done) {
-      suite = new CLITest(testPrefix, isForceMocked);
+      suite = new CLITest(testPrefix, requiredEnvironment);
 
       if (suite.isMocked) {
         sinon.stub(crypto, 'randomBytes', function () {
@@ -97,7 +110,11 @@ describe('cli', function () {
     });
 
     beforeEach(function (done) {
-      suite.setupTest(done);
+      suite.setupTest(function () {
+        communityImageId = process.env['AZURE_COMMUNITY_IMAGE_ID'];
+        storageAccountKey = process.env['AZURE_STORAGE_ACCESS_KEY'];
+        done();
+      });
     });
 
     afterEach(function (done) {

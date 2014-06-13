@@ -16,6 +16,7 @@ commands/cli.site.handler-tests.js
 # cli.mobilerecover-tests.js can only be run mocked
 #commands/cli.mobilerecover-tests.js
 commands/cli.network-tests.js
+commands/cli.vm-tests.js
 commands/cli.sb-tests.js
 commands/cli.service-tests.js
 commands/cli.site-tests.js
