@@ -38,37 +38,32 @@ var requiredEnvironment = [
 
 var communityImageId;
 var storageAccountKey;
-var isForceMocked = false;
 var createdDisks = [];
 
-// A common VM used by multiple tests
+// A common VM used by tests
 var vmToUse = {
   Name: null,
   Created: false,
   Delete: false
 };
 
-var vmPrefix = 'clitestvm';
-var vmNames = [];
-
 var suite;
 var testPrefix = 'cli.vm-tests';
-
 var currentRandom = 0;
 
 describe('cli', function () {
   describe('vm', function () {
     var vmImgName = 'xplattestimg';
-    var vmName = 'xplattestvm2';
+    var vmName = 'xplattestvm-3';
     var vnetName = 'xplattestvnet';
     var diskName = 'xplattestdisk';
     var affinityName = 'xplattestaffingrp';
-    var vnetVmName = 'xplattestvmVnet';
+    var vnetVmName = 'xplattestvm-vnet';
     var timeout = 60000;
+    var location = 'East US';
     var diskSourcePath,
-      domainUrl,
-      imageSourcePath,
-      location;
+        domainUrl,
+        imageSourcePath;
 
     before(function (done) {
       suite = new CLITest(testPrefix, requiredEnvironment);
@@ -85,9 +80,6 @@ describe('cli', function () {
     });
 
     after(function (done) {
-      console.log('AFTER started...');
-      console.log('DISKS to del List: %j', createdDisks);
-
       if (suite.isMocked) {
         crypto.randomBytes.restore();
         suite.teardownSuite(done);
@@ -95,9 +87,6 @@ describe('cli', function () {
         (function deleteUsedDisk() {
           if (createdDisks.length > 0) {
             var diskName = createdDisks.pop();
-
-            console.log('Deleting disk: %s', diskName);
-
             suite.execute('vm disk delete -b %s --json', diskName, function () {
               deleteUsedDisk();
             });
@@ -192,24 +181,23 @@ describe('cli', function () {
 
     it('Create and List VM', function (done) {
       suite.execute('vm create %s %s "azureuser" "Pa$$word@123" --json --location %s',
-        vmName, vmImgName, location, function (result) {
-          result.exitStatus.should.equal(0);
-
-          suite.execute('vm list --json', function (result) {
-            var vmList = JSON.parse(result.text);
-            // look for created VM
-            var vmExists = vmList.some(function (vm) {
-              return vm.VMName.toLowerCase() === vmName.toLowerCase();
+          vmName, vmImgName, location, function (result) {
+            result.exitStatus.should.equal(0);
+            suite.execute('vm list --json', function (result) {
+              var vmList = JSON.parse(result.text);
+              // look for created VM
+              var vmExists = vmList.some(function (vm) {
+                return vm.VMName.toLowerCase() === vmName.toLowerCase();
+              });
+              vmExists.should.be.ok;
+              return done();
             });
-            vmExists.should.be.ok;
-            return done();
           });
-        });
     });
 
     it('Export VM', function (done) {
-      var fileName = 'vminfo.json';
       // this file will be deleted in 'Create VM from Json' test
+      var fileName = 'vminfo.json';
       suite.execute('vm export %s %s  --json', vmName, fileName, function (result) {
         result.exitStatus.should.equal(0);
         if (fs.exists) {
@@ -228,11 +216,11 @@ describe('cli', function () {
 
     it('Negative Test Case by specifying VM Name Twice', function (done) {
       suite.execute('vm create %s %s "azureuser" "Pa$$word@123" --json --location %s',
-        vmName, vmImgName, location, function (result) {
-          result.exitStatus.should.equal(1);
-          result.errorText.should.include('already exists');
-          return done();
-        });
+          vmName, vmImgName, location, function (result) {
+            result.exitStatus.should.equal(1);
+            result.errorText.should.include('already exists');
+            return done();
+          });
     });
 
     it('Attach & Detach Disk', function (done) {
@@ -254,7 +242,7 @@ describe('cli', function () {
       });
     });
 
-    it('Attach-New Disk', function (done) {
+    it('Attach-New & Detach Disk', function (done) {
       var blobUrl = domainUrl + '/disks/xplattestDiskUpload.vhd';
       suite.execute('vm disk attach-new %s %s %s --json', vmName, 1, blobUrl, function (result) {
         result.exitStatus.should.equal(0);
@@ -279,13 +267,17 @@ describe('cli', function () {
       });
     });
 
-    it('VM Shutdown and Start', function (done) {
+    it('VM Shutdown', function (done) {
       suite.execute('vm shutdown %s --json', vmName, function (result) {
         result.exitStatus.should.equal(0);
-        suite.execute('vm start %s --json', vmName, function (result) {
-          result.exitStatus.should.equal(0);
-          return done();
-        });
+        return done();
+      });
+    });
+
+    it('VM Start', function (done) {
+      suite.execute('vm start %s --json', vmName, function (result) {
+        result.exitStatus.should.equal(0);
+        return done();
       });
     });
 
@@ -296,12 +288,13 @@ describe('cli', function () {
       });
     });
 
-    it('VM Capture', function (done) {
+    it('VM Capture & Delete Image', function (done) {
+      var capturedImageName = 'captured-image';
       suite.execute('vm shutdown %s --json', vmName, function (result) {
         result.exitStatus.should.equal(0);
-        suite.execute('vm capture %s %s %s --json --delete', vmName, 'caputured_Image', function (result) {
+        suite.execute('vm capture %s %s %s --json --delete', vmName, capturedImageName, function (result) {
           result.exitStatus.should.equal(0);
-          suite.execute('vm image delete -b %s --json', 'caputured_Image', function (result) {
+          suite.execute('vm image delete -b %s --json', capturedImageName, function (result) {
             result.exitStatus.should.equal(0);
             return done();
           });
@@ -311,33 +304,31 @@ describe('cli', function () {
 
     it('Create VM with Availability set', function (done) {
       suite.execute('vm create -A %s -n %s -l %s %s %s "azureuser" "Pa$$word@123" --json',
-        'Testset', vmName, location, vmName, vmImgName, function (result) {
-
-          result.exitStatus.should.equal(0);
-          suite.execute('vm show %s --json', vmName, function (result) {
-            var vmConnectName = JSON.parse(result.text);
-            vmConnectName.VMName.should.equal(vmName);
-            return done();
+          'Testset', vmName, location, vmName, vmImgName, function (result) {
+            result.exitStatus.should.equal(0);
+            suite.execute('vm show %s --json', vmName, function (result) {
+              var vmConnectName = JSON.parse(result.text);
+              vmConnectName.VMName.should.equal(vmName);
+              return done();
+            });
           });
-        });
     });
 
     it('Connect to existing VM', function (done) {
-      var vmConnect = vmName + '-2';
+      var vmConnect = vmName + '-4';
       suite.execute('vm create -l %s --connect %s %s "azureuser" "Pa$$word@123" --json',
-        location, vmName, vmImgName, function (result) {
-
-          result.exitStatus.should.equal(0);
-          suite.execute('vm show %s --json', vmConnect, function (result) {
+          location, vmName, vmImgName, function (result) {
             result.exitStatus.should.equal(0);
-            var vmConnectName = JSON.parse(result.text);
-            vmConnectName.VMName.should.equal(vmConnect);
-            vmToUse.Name = vmConnectName.VMName;
-            vmToUse.Created = true;
-            vmToUse.Delete = true;
-            return done();
+            suite.execute('vm show %s --json', vmConnect, function (result) {
+              result.exitStatus.should.equal(0);
+              var vmConnectName = JSON.parse(result.text);
+              vmConnectName.VMName.should.equal(vmConnect);
+              vmToUse.Name = vmConnectName.VMName;
+              vmToUse.Created = true;
+              vmToUse.Delete = true;
+              return done();
+            });
           });
-        });
     });
 
     it('Delete VM', function (done) {
@@ -352,15 +343,10 @@ describe('cli', function () {
     });
 
     it('Create VM with RDP port', function (done) {
-      var rdpVmName = vmName + 'rdp';
-      var certFile = process.env['SSHCERT'];
-
-      suite.execute('vm create -e %s -r %s -z %s --ssh-cert %s --no-ssh-password %s %s "azureuser" "Pa$$word@123"  --json --location %s',
-        '223', '3389', 'Small', certFile, rdpVmName, vmImgName, location, function (result) {
-
-          result.exitStatus.should.equal(0);
-
-          setTimeout(function () {
+      var rdpVmName = vmName + '-rdp';
+      suite.execute('vm create -e %s -r %s -z %s %s %s "azureuser" "Pa$$word@123"  --json --location %s',
+          '223', '3389', 'Small', rdpVmName, vmImgName, location, function (result) {
+            result.exitStatus.should.equal(0);
             suite.execute('vm show %s --json', rdpVmName, function (result) {
               var vmRDP = JSON.parse(result.text);
               vmRDP.VMName.should.equal(rdpVmName);
@@ -370,46 +356,60 @@ describe('cli', function () {
               vmToUse.Delete = true;
               return done();
             });
-          }, timeout);
-
-        });
+          });
     });
 
-    it('Create Windows VM', function (done) {
-      getSharedVM(function (vm) {
-        vm.Created.should.be.ok;
-        vmToUse.Delete = true;
-        done();
+    it('List Images & Create Windows VM', function (done) {
+      suite.execute('vm image list --json', function (result) {
+        result.exitStatus.should.equal(0);
+        var imageName;
+        var imageList = JSON.parse(result.text);
+        imageList.some(function (image) {
+          if (image.category === 'Public') {
+            imageName = image.name;
+          }
+        });
+        var vmWinName = vmName + '-w';
+        suite.execute('vm create %s %s azureuser PassW0rd$ --ssh --json --location %s',
+            vmWinName, imageName, location, function (result) {
+              result.exitStatus.should.equal(0);
+              vmToUse.Name = vmWinName;
+              vmToUse.Created = true;
+              vmToUse.Delete = true;
+              return done();
+            });
       });
     });
 
     it('Create Affinity Group', function (done) {
       suite.execute('account affinity-group create -l %s -e %s -d %s %s --json',
-        location, 'XplatAffinGrp', 'Test Affinty Group for xplat', affinityName, function (result) {
-          result.exitStatus.should.equal(0);
-          done();
-        });
+          location, 'XplatAffinGrp', 'Test Affinity Group for xplat', affinityName, function (result) {
+            result.exitStatus.should.equal(0);
+            done();
+          });
     });
 
     it('Create Virtual Network', function (done) {
       suite.execute('network vnet create %s -a %s --json',
-        vnetName, affinityName, function (result) {
-          result.exitStatus.should.equal(0);
-          done();
-        });
+          vnetName, affinityName, function (result) {
+            result.exitStatus.should.equal(0);
+            done();
+          });
     });
 
     it('Create VM assigned to a Virtual Network', function (done) {
       suite.execute('vm create --virtual-network-name %s %s %s "azureuser" "Pa$$word@123" --affinity-group %s --json',
-        vnetName, vnetVmName, vmImgName, affinityName, function (result) {
-          result.exitStatus.should.equal(0);
-          suite.execute('vm show %s --json', vnetVmName, function (result) {
-            var vmVnet = JSON.parse(result.text);
-            vmToUse.Name = vnetVmName;
-            vmToUse.Created = true;
-            return done();
+          vnetName, vnetVmName, vmImgName, affinityName, function (result) {
+            result.exitStatus.should.equal(0);
+            suite.execute('vm show %s --json', vnetVmName, function (result) {
+              result.exitStatus.should.equal(0);
+              var vmVnet = JSON.parse(result.text);
+              vmVnet.VMName.should.equal(vnetVmName);
+              vmToUse.Name = vnetVmName;
+              vmToUse.Created = true;
+              return done();
+            });
           });
-        });
     });
 
     it('Create and List Endpoint', function (done) {
@@ -417,37 +417,35 @@ describe('cli', function () {
       var lbSetName = 'Lb_Set_Test';
       var probPathName = '/prob/listner1';
       suite.execute('vm endpoint create -n %s -o %s %s %s %s -u -b %s -t %s -r tcp -p %s --json',
-        vmEndpointName, 'tcp', vnetVmName, 8080, 80, lbSetName, 4444, probPathName, function (result) {
-
-          result.exitStatus.should.equal(0);
-          suite.execute('vm endpoint list %s --json', vnetVmName, function (result) {
+          vmEndpointName, 'tcp', vnetVmName, 8080, 80, lbSetName, 4444, probPathName, function (result) {
             result.exitStatus.should.equal(0);
-            var epList = JSON.parse(result.text);
-            var epExists = epList.some(function (ep) {
-              return ep.name.toLowerCase() === vmEndpointName.toLowerCase();
+            suite.execute('vm endpoint list %s --json', vnetVmName, function (result) {
+              result.exitStatus.should.equal(0);
+              var epList = JSON.parse(result.text);
+              var epExists = epList.some(function (ep) {
+                return ep.name.toLowerCase() === vmEndpointName.toLowerCase();
+              });
+              epExists.should.be.true;
+              return done();
             });
-            epExists.should.be.true;
-            return done();
           });
-        });
     });
 
     it('Update and Delete Endpoint', function (done) {
       var vmEndpointName = 'TestEndpoint';
       suite.execute('vm endpoint update %s %s -t %s -l %s -o %s --json',
-        vnetVmName, vmEndpointName, 8081, 8082, 'tcp', function (result) {
-          result.exitStatus.should.equal(0);
-
-          suite.execute('vm endpoint show %s -e %s --json', vnetVmName, vmEndpointName, function (result) {
+          vnetVmName, vmEndpointName, 8081, 8082, 'tcp', function (result) {
             result.exitStatus.should.equal(0);
-            var vmEndpointObj = JSON.parse(result.text);
-            vmEndpointObj.Network.Endpoints[0].port.should.equal(8082);
-            suite.execute('vm endpoint delete %s %s --json', vnetVmName, vmEndpointName, function (result) {
+            suite.execute('vm endpoint show %s -e %s --json', vnetVmName, vmEndpointName, function (result) {
               result.exitStatus.should.equal(0);
-              done();
+              var vmEndpointObj = JSON.parse(result.text);
+              vmEndpointObj.Network.Endpoints[0].Port.should.equal(8082);
+              suite.execute('vm endpoint delete %s %s --json', vnetVmName, vmEndpointName, function (result) {
+                result.exitStatus.should.equal(0);
+                done();
+              });
             });
           });
-        });
     });
 
     it('Create Multiple Endpoints', function (done) {
@@ -479,17 +477,17 @@ describe('cli', function () {
       };
 
       var cmd = util.format(
-        'vm endpoint create-multiple %s %s,%s:%s,%s:%s:%s:%s:%s,%s:%s:%s:%s:%s:%s:%s:%s --json',
-        vnetVmName,
-        // EndPoint1
-        endPoints.OnlyPP.PublicPort,
-        // EndPoint2
-        endPoints.PPAndLP.PublicPort, endPoints.PPAndLP.LocalPort,
-        // EndPoint3
-        endPoints.PPLPAndLBSet.PublicPort, endPoints.PPLPAndLBSet.LocalPort, endPoints.PPLPAndLBSet.Protocol, endPoints.PPLPAndLBSet.EnableDirectServerReturn, endPoints.PPLPAndLBSet.LoadBalancerSetName,
-        // EndPoint4
-        endPoints.PPLPLBSetAndProb.PublicPort, endPoints.PPLPLBSetAndProb.LocalPort, endPoints.PPLPLBSetAndProb.Protocol, endPoints.PPLPLBSetAndProb.EnableDirectServerReturn, endPoints.PPLPLBSetAndProb.LoadBalancerSetName,
-        endPoints.PPLPLBSetAndProb.ProbProtocol, endPoints.PPLPLBSetAndProb.ProbPort, endPoints.PPLPLBSetAndProb.ProbPath).split(' ');
+          'vm endpoint create-multiple %s %s,%s:%s,%s:%s:%s:%s:%s,%s:%s:%s:%s:%s:%s:%s:%s --json',
+          vnetVmName,
+          // EndPoint1
+          endPoints.OnlyPP.PublicPort,
+          // EndPoint2
+          endPoints.PPAndLP.PublicPort, endPoints.PPAndLP.LocalPort,
+          // EndPoint3
+          endPoints.PPLPAndLBSet.PublicPort, endPoints.PPLPAndLBSet.LocalPort, endPoints.PPLPAndLBSet.Protocol, endPoints.PPLPAndLBSet.EnableDirectServerReturn, endPoints.PPLPAndLBSet.LoadBalancerSetName,
+          // EndPoint4
+          endPoints.PPLPLBSetAndProb.PublicPort, endPoints.PPLPLBSetAndProb.LocalPort, endPoints.PPLPLBSetAndProb.Protocol, endPoints.PPLPLBSetAndProb.EnableDirectServerReturn, endPoints.PPLPLBSetAndProb.LoadBalancerSetName,
+          endPoints.PPLPLBSetAndProb.ProbProtocol, endPoints.PPLPLBSetAndProb.ProbPort, endPoints.PPLPLBSetAndProb.ProbPath).split(' ');
 
       suite.execute(cmd, function (result) {
         result.exitStatus.should.equal(0);
@@ -499,16 +497,16 @@ describe('cli', function () {
           var allEndPointList = JSON.parse(result.text);
           // Verify endpoint creation with only lb port
           var endPointListOnlyLb = allEndPointList.filter(
-            function (element, index, array) {
-              return (element.localPort == endPoints.OnlyPP.PublicPort);
-            });
+              function (element, index, array) {
+                return (element.localPort == endPoints.OnlyPP.PublicPort);
+              });
           endPointListOnlyLb.length.should.be.equal(1);
           (endPointListOnlyLb[0].port == endPointListOnlyLb[0].port).should.be.true;
           // Verify endpoint creation with lb port and vm port
           var endPointListLbAndVm = allEndPointList.filter(
-            function (element, index, array) {
-              return (element.localPort == endPoints.PPAndLP.LocalPort);
-            });
+              function (element, index, array) {
+                return (element.localPort == endPoints.PPAndLP.LocalPort);
+              });
 
           endPointListLbAndVm.length.should.be.equal(1);
           (endPointListLbAndVm[0].port == endPoints.PPAndLP.PublicPort).should.be.true;
@@ -522,13 +520,12 @@ describe('cli', function () {
             (vmInfo.Network.Endpoints.length >= 4).should.be.true;
 
             var endPointListLbVmAndSet = vmInfo.Network.Endpoints.filter(
-              function (element, index, array) {
-                return (element.localPort == endPoints.PPLPAndLBSet.LocalPort);
-              });
+                function (element, index, array) {
+                  return (element.localPort == endPoints.PPLPAndLBSet.LocalPort);
+                });
 
             endPointListLbVmAndSet.length.should.be.equal(1);
 
-            // Set Delete to true if this is the last test using shared vm
             vmToUse.Delete = true;
             done();
           });
@@ -539,99 +536,31 @@ describe('cli', function () {
     it('Negative Test Case for VM Create by specifying invalid Password', function (done) {
       var vmNegName = 'TestImg';
       suite.execute('vm create %s %s "azureuser" "badpassword" --json --location %s',
-        vmNegName, vmImgName, location, function (result) {
-          result.exitStatus.should.equal(1);
-          result.errorText.should.include('password must be at least');
-          done();
-        });
+          vmNegName, vmImgName, location, function (result) {
+            result.exitStatus.should.equal(1);
+            result.errorText.should.include('password must be at least');
+            done();
+          });
     });
 
     it('Negative Test Case for VM Create with Invalid Name', function (done) {
       var vmNegName = 'test1@1';
       suite.execute('vm create %s %s "azureuser" "Pa$$word@123" --json --location %s',
-        vmNegName, vmImgName, location, function (result) {
-          result.exitStatus.should.equal(1);
-          result.errorText.should.include('The hosted service name is invalid');
-          done();
-        });
+          vmNegName, vmImgName, location, function (result) {
+            result.exitStatus.should.equal(1);
+            result.errorText.should.include('The hosted service name is invalid');
+            done();
+          });
     });
 
     it('Negative Test Case by specifying invalid Location', function (done) {
       var vmNegName = 'newTestImg';
       suite.execute('vm create %s %s "azureuser" "Pa$$word@123" --json --location %s',
-        vmNegName, vmImgName, 'BadLocation', function (result) {
-          result.exitStatus.should.equal(1);
-          result.errorText.should.include('No location found');
-          done();
-        });
-    });
-
-    it('Create VM from Community Image', function (done) {
-      var vmComName = suite.generateId(vmPrefix, vmNames);
-      suite.execute('vm create %s %s communityUser PassW0rd$ -o --json --ssh --location %s',
-        vmComName, communityImageId, location, function (result) {
-          result.exitStatus.should.equal(0);
-          suite.execute('vm show %s --json', vmComName, function (result) {
-            var vmComObj = JSON.parse(result.text);
-            vmComObj.VMName.should.equal(vmComName);
-            vmToUse.Name = vmComName;
-            vmToUse.Created = true;
-            vmToUse.Delete = true;
+          vmNegName, vmImgName, 'BadLocation', function (result) {
+            result.exitStatus.should.equal(1);
+            result.errorText.should.include('No location found');
             done();
           });
-        });
-    });
-
-    it('Create VM from Json file', function (done) {
-      var filePath = path.join(__dirname, '../../vminfo.json');
-      var content = fs.readFileSync(filePath, 'utf8');
-      var vmObj = JSON.parse(content);
-
-      vmObj['roleName'] = vmName;
-
-      var jsonstr = JSON.stringify(vmObj);
-
-      fs.writeFileSync(filePath, jsonstr);
-
-      setTimeout(function () {
-        suite.execute('vm create-from %s %s --json --location %s', vmName, filePath, location, function (result) {
-          result.exitStatus.should.equal(0);
-          fs.unlink('vminfo.json', function (err) {
-            if (err)
-              throw err;
-            vmToUse.Name = vmName;
-            vmToUse.Created = true;
-            vmToUse.Delete = true;
-            done();
-          });
-        });
-      }, timeout * 4);
-
-    });
-
-    it('Upload disk', function (done) {
-      var sourcePath = process.env['BLOB_SOURCE_PATH'] || diskSourcePath;
-      var blobUrl = 'http://' + process.env['AZURE_STORAGE_ACCOUNT'] + '.blob.core.windows.net/vhd-store/Uploaded-Disk.vhd';
-      suite.execute('vm disk upload %s %s %s --json', sourcePath, blobUrl, storageAccountKey, function (result) {
-        result.exitStatus.should.equal(0);
-        done();
-      });
-    });
-
-    it('Delete Virtual Network', function (done) {
-      setTimeout(function () {
-        suite.execute('network vnet delete %s --quiet --json', vnetName, function (result) {
-          result.exitStatus.should.equal(0);
-          done();
-        });
-      }, timeout);
-    });
-
-    it('Delete Affinity group', function (done) {
-      suite.execute('account affinity-group delete %s --quiet --json', 'xplattestaffingrp', function (result) {
-        result.exitStatus.should.equal(0);
-        done();
-      });
     });
 
     it('Image Delete', function (done) {
@@ -648,44 +577,5 @@ describe('cli', function () {
       });
     });
 
-    // Get name of an image of the given category
-    function getImageName(category, callBack) {
-      if (getImageName.imageName) {
-        callBack(getImageName.imageName);
-      } else {
-        suite.execute('vm image list --json', function (result) {
-          var imageList = JSON.parse(result.text);
-
-          imageList.some(function (image) {
-            if (image.category.toLowerCase() === category.toLowerCase()) {
-              getImageName.imageName = image.name;
-            }
-          });
-
-          callBack(getImageName.imageName);
-        });
-      }
-    }
-
-    // Create a VM to be used by multiple tests (this will be useful when we add more tests
-    // for endpoint create/delete/update, vm create -c.
-    function getSharedVM(callBack) {
-      if (vmToUse.Created) {
-        return callBack(vmToUse);
-      } else {
-        getImageName('Public', function (imageName) {
-          var name = suite.generateId(vmPrefix, vmNames);
-          suite.execute('vm create %s %s azureuser PassW0rd$ --ssh --json --location %s',
-            name, imageName, location, function (result) {
-              vmToUse.Created = (result.exitStatus === 0);
-              vmToUse.Name = vmToUse.Created ? name : null;
-              suite.execute('vm show %s --json', name, function (result) {
-                var vmObj = JSON.parse(result.text);
-                return callBack(vmToUse);
-              });
-            });
-        });
-      }
-    }
   });
 });
